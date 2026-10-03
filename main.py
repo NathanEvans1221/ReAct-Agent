@@ -8,13 +8,11 @@ import traceback
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Dict, Any
 from decimal import Decimal, DecimalException, localcontext
 from openai import APIError, OpenAI
 from dotenv import load_dotenv
-
-# 加載環境變數
-load_dotenv()
 
 CRASH_DIR = Path(__file__).resolve().parent / "logs" / "crashes"
 DEMO_QUERY = "依據模擬資料，找出2024年5月20日就任的台灣總統，並計算他在2030年生日當天滿幾歲。"
@@ -46,6 +44,21 @@ def unexpected_error(exc: Exception, step: int) -> RunResult:
         error = f"未預期錯誤（{type(exc).__name__}）；無法寫入診斷報告。"
     return RunResult("internal_error", step, error=error)
 
+
+def load_settings() -> dict[str, str]:
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+    settings = {}
+    for name in ("MINIMAX_API_KEY", "MINIMAX_BASE_URL", "MINIMAX_MODEL"):
+        value = os.getenv(name, "").strip()
+        if not value or value == "你的_MINIMAX_API_KEY":
+            raise ValueError(f"請在 .env 或環境變數設定有效的 {name}。")
+        settings[name] = value
+    url = urlsplit(settings["MINIMAX_BASE_URL"])
+    if (url.scheme != "https" or not url.hostname or url.username or url.password
+            or url.query or url.fragment or any(char.isspace() for char in settings["MINIMAX_BASE_URL"])):
+        raise ValueError("MINIMAX_BASE_URL 必須為不含帳密、查詢參數或片段的 HTTPS 端點。")
+    return settings
+
 # ═══════════════════════════════════════════
 # 💡 概念：ReAct 代理與 MiniMax API 整合
 # 說明：這是一個具備正規解析功能的實例。
@@ -54,17 +67,18 @@ def unexpected_error(exc: Exception, step: int) -> RunResult:
 
 class MiniMaxReActAgent:
     def __init__(self):
+        settings = load_settings()
         # ═══════════════════════════════════════════
         # 💡 標準用法說明：OpenAI SDK v1.x +
         # 這裡採用了現代化的 Client 實例化方式，相對於舊版的全局設定更具隔離性。
         # 由於 MiniMax 支援 OpenAI 兼容協議，我們只需替換 base_url 即可。
         # ═══════════════════════════════════════════
         self.client = OpenAI(
-            api_key=os.getenv("MINIMAX_API_KEY"),
-            base_url=os.getenv("MINIMAX_BASE_URL")
+            api_key=settings["MINIMAX_API_KEY"],
+            base_url=settings["MINIMAX_BASE_URL"]
         )
 
-        self.model = os.getenv("MINIMAX_MODEL", "abab6.5s-chat")
+        self.model = settings["MINIMAX_MODEL"]
         
         # 定義可用工具
         self.tools = {
@@ -248,7 +262,11 @@ Final Answer: [最終總結答案]
 
 
 def main() -> int:
-    agent = MiniMaxReActAgent()
+    try:
+        agent = MiniMaxReActAgent()
+    except ValueError as exc:
+        print(f"❌ 設定錯誤：{exc}")
+        return 2
     result = agent.run(DEMO_QUERY)
     if result.status != "success":
         print(f"❌ {result.status}: {result.error}")

@@ -3,6 +3,7 @@ import io
 import unittest
 import tempfile
 import json
+import os
 from pathlib import Path
 import httpx
 from openai import APIConnectionError
@@ -31,6 +32,31 @@ def scripted_agent(*replies):
     agent.model = "offline-test"
     agent.tools = {"calculator": agent.tool_calculator, "web_search": agent.tool_web_search}
     return agent
+
+
+class ConfigTests(unittest.TestCase):
+    def test_missing_settings_fail_before_client_creation(self):
+        valid = {"MINIMAX_API_KEY": "test-key", "MINIMAX_BASE_URL": "https://example.test/v1", "MINIMAX_MODEL": "test-model"}
+        for missing in valid:
+            env = {key: value for key, value in valid.items() if key != missing}
+            with self.subTest(missing=missing), patch.dict(os.environ, env, clear=True), patch("main.load_dotenv"), patch("main.OpenAI") as client:
+                with self.assertRaisesRegex(ValueError, missing):
+                    MiniMaxReActAgent()
+                client.assert_not_called()
+
+    def test_invalid_url_and_placeholder_key_are_rejected(self):
+        for url, key in (("not-a-url", "test"), ("http://example.test/v1", "test"),
+                         ("https://user:secret@example.test/v1", "test"),
+                         ("https://example.test/v1", "你的_MINIMAX_API_KEY")):
+            env = {"MINIMAX_API_KEY": key, "MINIMAX_BASE_URL": url, "MINIMAX_MODEL": "test"}
+            with self.subTest(url=url), patch.dict(os.environ, env, clear=True), patch("main.load_dotenv"), patch("main.OpenAI"):
+                with self.assertRaises(ValueError):
+                    MiniMaxReActAgent()
+
+    def test_cli_configuration_failure_is_readable(self):
+        with patch.dict(os.environ, {}, clear=True), patch("main.load_dotenv"), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(app.main(), 2)
+        self.assertIn("MINIMAX_API_KEY", output.getvalue())
 
 
 class RunTests(unittest.TestCase):

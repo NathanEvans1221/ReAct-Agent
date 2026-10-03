@@ -43,7 +43,7 @@ client = OpenAI(
 
 # 2. 進行對話調用
 response = client.chat.completions.create(
-    model="Minimax-M2.5",
+    model="MiniMax-M2.5",
     messages=[{"role": "user", "content": "你好！"}]
 )
 
@@ -79,7 +79,7 @@ flowchart TD
 
 本專案運行於 WSL (Ubuntu 22.04) 環境。
 
-- **Python 版本**: 3.12 (參考 `.python-version`)
+- **Python 版本**: 支援 3.10 以上；`.python-version` 指定開發版本 3.11.9。既有 WSL 虛擬環境的本次驗證版本為 3.10.12。
 - **Shell**: Bash / PowerShell 7
 
 ---
@@ -121,7 +121,11 @@ cp .env.example .env
 請確保 `.env` 內包含以下正確格式：
 - `MINIMAX_API_KEY`: 您的 API 金鑰。
 - `MINIMAX_BASE_URL`: `https://api.minimax.io/v1`
-- `MINIMAX_MODEL`: `Minimax-M2.5` (注意大小寫與點點)
+- `MINIMAX_MODEL`: `MiniMax-M2.5`（注意大小寫與小數點）。
+
+三個變數均為必填，程式不會回退到另一家供應商或舊模型；既有環境變數優先於 `.env`。
+端點必須為 HTTPS，且不得含帳密、查詢參數或片段。範例金鑰必須替換後才能執行。
+模型名稱及端點依據 [MiniMax 官方 OpenAI 相容介面文件](https://platform.minimax.io/docs/api-reference/text-openai-api)。
 
 ### 4. 執行 Agent
 
@@ -168,7 +172,7 @@ Final Answer: 台灣現任總統是賴清德，他出生於1959年。到2030年�
 **原因**：MiniMax 模型的命名規範較為嚴格。
 **解決**：
 - ❌ 錯誤：`minimax-m2-5` 或 `minimax-m2.5`
-- ✅ 正確：**`Minimax-M2.5`** (首字母大寫，中間使用小數點 `.`)
+- ✅ 本範例使用：**`MiniMax-M2.5`**（大小寫須完全一致，仍需帳號具備模型權限）。
 
 ### Q3: Mermaid 圖表無法顯示
 **原因**：VS Code 預設不支持網頁版 Mermaid 語法。

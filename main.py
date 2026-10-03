@@ -113,21 +113,26 @@ Final Answer: [最終總結答案]
 注意：每一輪對話只能輸出一個 Thought 和一個 Action。"""
 
     def parse_output(self, text: str) -> Dict[str, Any]:
-        """使用正則表達式解析 LLM 的輸出"""
-        if "Final Answer:" in text:
-            return {"final_answer": text.split("Final Answer:")[1].strip()}
-        
-        thought_match = re.search(r"Thought:\s*(.*)", text)
-        action_match = re.search(r"Action:\s*(.*)", text)
-        input_match = re.search(r"Action Input:\s*(.*)", text)
-        
-        if thought_match and action_match and input_match:
-            return {
-                "thought": thought_match.group(1).strip(),
-                "action": action_match.group(1).strip(),
-                "action_input": input_match.group(1).strip()
-            }
-        return {"error": "無法解析輸出格式", "raw": text}
+        """驗證欄位順序及唯一性，保留多行內容。"""
+        error = {"error": "無法解析輸出格式", "raw": text}
+        if not isinstance(text, str) or not text.strip():
+            return error
+        text = text.strip()
+        fields = list(re.finditer(r"^(Thought|Action|Action Input|Final Answer):[ \t]*", text, re.M))
+        names = [field.group(1) for field in fields]
+        if not fields or fields[0].start() != 0:
+            return error
+        if names not in (["Final Answer"], ["Thought", "Action", "Action Input"]):
+            return error
+        values = [text[field.end():fields[i + 1].start() if i + 1 < len(fields) else len(text)].strip()
+                  for i, field in enumerate(fields)]
+        if not all(values):
+            return error
+        if names == ["Final Answer"]:
+            return {"final_answer": values[0]}
+        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", values[1]):
+            return error
+        return dict(zip(("thought", "action", "action_input"), values))
 
     def run(self, user_query: str):
         print(f"🚀 啟動任務: {user_query}\n")
@@ -137,7 +142,8 @@ Final Answer: [最終總結答案]
             {"role": "user", "content": user_query}
         ]
 
-        # 限制最大步數，防止無限循環耗盡 Token
+        format_errors = 0
+        # 格式修正也計入最大步數，避免無限重試。
         for step in range(1, 6):
             print(f"--- 步驟 {step} ---")
             
@@ -153,7 +159,15 @@ Final Answer: [最終總結答案]
 
             if "error" in parsed:
                 print(f"❌ 格式錯誤: {parsed['raw']}")
-                break
+                format_errors += 1
+                if format_errors > 2:
+                    break
+                if isinstance(raw_content, str) and raw_content.strip():
+                    messages.append({"role": "assistant", "content": raw_content})
+                messages.append({"role": "user", "content":
+                                 "輸出格式錯誤。請僅輸出 Thought、Action、Action Input 三個非空欄位，"
+                                 "或單獨輸出非空的 Final Answer；每個欄位名稱必須獨占行首且不可重複。"})
+                continue
 
             if "final_answer" in parsed:
                 print(f"\n✅ 任務完成！\nFinal Answer: {parsed['final_answer']}")

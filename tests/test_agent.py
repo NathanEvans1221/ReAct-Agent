@@ -1,6 +1,8 @@
 import contextlib
 import io
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from main import MiniMaxReActAgent
 
@@ -28,6 +30,51 @@ class SearchTests(unittest.TestCase):
         result = self.search("目前台灣總統是誰")
         self.assertNotIn("賴清德", result)
         self.assertIn("即時", result)
+
+
+class ParserTests(unittest.TestCase):
+    def setUp(self):
+        self.agent = MiniMaxReActAgent.__new__(MiniMaxReActAgent)
+
+    def test_empty_or_non_text_response_is_rejected(self):
+        for content in (None, "", "   ", 12):
+            with self.subTest(content=content):
+                self.assertIn("error", self.agent.parse_output(content))
+
+    def test_embedded_final_marker_does_not_finish_action(self):
+        parsed = self.agent.parse_output(
+            "Thought: 不應在此輸出 Final Answer: 標記\nAction: calculator\nAction Input: 1+2")
+        self.assertEqual(parsed.get("action"), "calculator")
+        self.assertNotIn("final_answer", parsed)
+
+    def test_multiline_input_and_thought_are_preserved(self):
+        parsed = self.agent.parse_output(
+            "Thought: 第一行\n第二行\nAction: web_search\nAction Input: 第一段\n第二段")
+        self.assertEqual(parsed.get("thought"), "第一行\n第二行")
+        self.assertEqual(parsed.get("action_input"), "第一段\n第二段")
+
+    def test_ambiguous_or_incomplete_output_is_rejected(self):
+        for content in ("Final Answer: ", "Thought: x\nAction: calculator\nAction Input: ",
+                        "Thought: x\nAction: calculator\nAction Input: 1\nFinal Answer: 1",
+                        "Thought: x\nAction: calculator\nAction: web_search\nAction Input: x",
+                        "前言\nFinal Answer: 答案"):
+            with self.subTest(content=content):
+                self.assertIn("error", self.agent.parse_output(content))
+
+    def test_multiline_final_answer_is_preserved(self):
+        self.assertEqual(self.agent.parse_output("Final Answer: 第一行\n第二行"),
+                         {"final_answer": "第一行\n第二行"})
+
+    def test_invalid_format_can_be_repaired(self):
+        replies = iter(["格式不正確", "Final Answer: 修正成功"])
+        def create(**kwargs):
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=next(replies)))])
+        self.agent.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        self.agent.model = "offline-test"
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.agent.run("測試")
+        self.assertIn("修正成功", output.getvalue())
 
 
 class CalculatorTests(unittest.TestCase):

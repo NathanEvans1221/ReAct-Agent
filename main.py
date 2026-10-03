@@ -1,15 +1,50 @@
 import ast
+import json
 import operator
 import os
 import re
 import time
+import traceback
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, Any
 from decimal import Decimal, DecimalException, localcontext
-from openai import OpenAI
+from openai import APIError, OpenAI
 from dotenv import load_dotenv
 
 # 加載環境變數
 load_dotenv()
+
+CRASH_DIR = Path(__file__).resolve().parent / "logs" / "crashes"
+DEMO_QUERY = "依據模擬資料，找出2024年5月20日就任的台灣總統，並計算他在2030年生日當天滿幾歲。"
+
+
+@dataclass(frozen=True)
+class RunResult:
+    status: str
+    steps: int
+    answer: str | None = None
+    error: str | None = None
+
+
+def unexpected_error(exc: Exception, step: int) -> RunResult:
+    """保存所有堆疊位置及安全快照，不記錄例外訊息、原始碼或使用者資料。"""
+    report = {
+        "message": "Agent 因未預期錯誤停止執行",
+        "exception_type": type(exc).__name__,
+        "snapshot": {"step": step},
+        "traceback": [{"file": frame.filename, "line": frame.lineno, "function": frame.name}
+                      for frame in traceback.extract_tb(exc.__traceback__)]
+    }
+    try:
+        CRASH_DIR.mkdir(parents=True, exist_ok=True)
+        path = CRASH_DIR / f"{uuid.uuid4().hex}.json"
+        path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        error = f"未預期錯誤（{type(exc).__name__}）；診斷報告：{path}"
+    except OSError:
+        error = f"未預期錯誤（{type(exc).__name__}）；無法寫入診斷報告。"
+    return RunResult("internal_error", step, error=error)
 
 # ═══════════════════════════════════════════
 # 💡 概念：ReAct 代理與 MiniMax API 整合
@@ -134,7 +169,11 @@ Final Answer: [最終總結答案]
             return error
         return dict(zip(("thought", "action", "action_input"), values))
 
-    def run(self, user_query: str):
+    def run(self, user_query: str, max_steps: int = 5) -> RunResult:
+        if not isinstance(user_query, str) or not user_query.strip():
+            return RunResult("invalid_input", 0, error="任務不可為空。")
+        if type(max_steps) is not int or not 1 <= max_steps <= 50:
+            return RunResult("invalid_input", 0, error="最大步數需為 1 至 50 的整數。")
         print(f"🚀 啟動任務: {user_query}\n")
         
         messages = [
@@ -144,24 +183,31 @@ Final Answer: [最終總結答案]
 
         format_errors = 0
         # 格式修正也計入最大步數，避免無限重試。
-        for step in range(1, 6):
+        for step in range(1, max_steps + 1):
             print(f"--- 步驟 {step} ---")
             
             # 向 MiniMax API 發送請求
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.1 # 設低一點讓輸出更穩定遵循格式
-            )
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0.1 # 設低一點讓輸出更穩定遵循格式
+                )
+            except APIError as exc:
+                return RunResult("api_error", step, error=f"模型 API 請求失敗（{type(exc).__name__}）。請檢查連線、設定及額度。")
+            except Exception as exc:
+                return unexpected_error(exc, step)
+            if not response.choices:
+                return RunResult("response_error", step, error="模型未回傳任何候選回覆。")
             
             raw_content = response.choices[0].message.content
             parsed = self.parse_output(raw_content)
 
             if "error" in parsed:
-                print(f"❌ 格式錯誤: {parsed['raw']}")
+                print("❌ 格式錯誤，要求模型修正。")
                 format_errors += 1
                 if format_errors > 2:
-                    break
+                    return RunResult("format_error", step, error="模型連續或累計三次輸出無效格式。")
                 if isinstance(raw_content, str) and raw_content.strip():
                     messages.append({"role": "assistant", "content": raw_content})
                 messages.append({"role": "user", "content":
@@ -171,7 +217,7 @@ Final Answer: [最終總結答案]
 
             if "final_answer" in parsed:
                 print(f"\n✅ 任務完成！\nFinal Answer: {parsed['final_answer']}")
-                return
+                return RunResult("success", step, answer=parsed["final_answer"])
 
             # 解析成功，處理工具 call
             thought = parsed["thought"]
@@ -183,7 +229,10 @@ Final Answer: [最終總結答案]
 
             # 執行工具
             if action in self.tools:
-                observation = self.tools[action](action_input)
+                try:
+                    observation = self.tools[action](action_input)
+                except Exception as exc:
+                    return unexpected_error(exc, step)
             else:
                 observation = f"錯誤：工具 {action} 不存在。"
             
@@ -195,7 +244,17 @@ Final Answer: [最終總結答案]
             
             time.sleep(1) # 緩衝
 
-if __name__ == "__main__":
+        return RunResult("step_limit", max_steps, error="已達最大步數，尚未取得最終答案。")
+
+
+def main() -> int:
     agent = MiniMaxReActAgent()
-    query = "依據模擬資料，找出2024年5月20日就任的台灣總統，並計算他在2030年生日當天滿幾歲。"
-    agent.run(query)
+    result = agent.run(DEMO_QUERY)
+    if result.status != "success":
+        print(f"❌ {result.status}: {result.error}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

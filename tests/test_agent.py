@@ -1,10 +1,93 @@
 import contextlib
 import io
 import unittest
+import tempfile
+import json
+from pathlib import Path
+import httpx
+from openai import APIConnectionError
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from main import MiniMaxReActAgent
+import main as app
+
+
+def response(content):
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+
+def scripted_agent(*replies):
+    agent = MiniMaxReActAgent.__new__(MiniMaxReActAgent)
+    pending = iter(replies)
+    agent.calls = []
+    def create(**kwargs):
+        agent.calls.append([dict(message) for message in kwargs["messages"]])
+        item = next(pending)
+        if isinstance(item, Exception):
+            raise item
+        return response(item)
+    agent.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    agent.model = "offline-test"
+    agent.tools = {"calculator": agent.tool_calculator, "web_search": agent.tool_web_search}
+    return agent
+
+
+class RunTests(unittest.TestCase):
+    def run_agent(self, agent, **kwargs):
+        with contextlib.redirect_stdout(io.StringIO()), patch("main.time.sleep"):
+            return agent.run("測試", **kwargs)
+
+    def test_success_returns_answer_and_steps(self):
+        agent = scripted_agent("Thought: 計算\nAction: calculator\nAction Input: 2+3", "Final Answer: 5")
+        result = self.run_agent(agent)
+        self.assertEqual((result.status, result.answer, result.steps), ("success", "5", 2))
+        self.assertEqual(agent.calls[1][-1]["content"], "Observation: 5")
+
+    def test_step_limit_has_explicit_result(self):
+        agent = scripted_agent("Thought: 計算\nAction: calculator\nAction Input: 2+3")
+        result = self.run_agent(agent, max_steps=1)
+        self.assertEqual((result.status, result.steps), ("step_limit", 1))
+        self.assertIsNone(result.answer)
+
+    def test_format_retries_are_bounded(self):
+        agent = scripted_agent("bad", "bad", "bad", "Final Answer: 不應抵達")
+        result = self.run_agent(agent)
+        self.assertEqual((result.status, result.steps), ("format_error", 3))
+        self.assertEqual(len(agent.calls), 3)
+
+    def test_api_failure_does_not_leak_request_details(self):
+        agent = scripted_agent(APIConnectionError(message="secret-value", request=httpx.Request("POST", "https://example.test")))
+        result = self.run_agent(agent)
+        self.assertEqual(result.status, "api_error")
+        self.assertNotIn("secret-value", result.error)
+
+    def test_empty_choices_has_explicit_result(self):
+        agent = scripted_agent()
+        agent.client.chat.completions.create = lambda **kwargs: SimpleNamespace(choices=[])
+        self.assertEqual(self.run_agent(agent).status, "response_error")
+
+    def test_unexpected_tool_failure_writes_sanitized_crash(self):
+        agent = scripted_agent("Thought: 測試\nAction: broken\nAction Input: secret-input")
+        def broken(value):
+            raise RuntimeError("secret-value")
+        agent.tools["broken"] = broken
+        with tempfile.TemporaryDirectory() as directory, patch("main.CRASH_DIR", Path(directory), create=True):
+            result = self.run_agent(agent)
+            self.assertEqual(result.status, "internal_error")
+            reports = list(Path(directory).glob("*.json"))
+            self.assertEqual(len(reports), 1)
+            report = reports[0].read_text()
+            self.assertNotIn("secret-value", report)
+            self.assertNotIn("secret-input", report)
+            self.assertEqual(json.loads(report)["exception_type"], "RuntimeError")
+
+    def test_cli_failure_returns_nonzero(self):
+        entry = getattr(app, "main", None)
+        self.assertIsNotNone(entry, "需要可回傳退出碼的 CLI 入口")
+        agent = scripted_agent("bad", "bad", "bad")
+        with patch("main.MiniMaxReActAgent", return_value=agent), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(entry(), 1)
 
 
 class SearchTests(unittest.TestCase):

@@ -1,4 +1,5 @@
 # Byte-compiled / optimized / DLL files
+/logs/crashes/
 __pycache__/
 *.py[codz]
 *$py.class

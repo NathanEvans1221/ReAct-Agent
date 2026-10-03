@@ -1,7 +1,10 @@
+import ast
+import operator
 import os
 import re
 import time
 from typing import Dict, Any
+from decimal import Decimal, DecimalException, localcontext
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -48,14 +51,49 @@ class MiniMaxReActAgent:
         return "[模擬搜尋] 沒有符合的示範資料；本工具無法查詢即時資訊，請勿推測答案。"
 
     def tool_calculator(self, expression: str) -> str:
-        """安全執行數學計算"""
+        """以受限 AST 計算十進位四則運算，不執行任意 Python。"""
         print(f"   🧮 [執行計算]: {expression}")
         try:
-            # 移除危險字元
-            safe_expr = re.sub(r'[^0-9+\-*/(). ]', '', expression)
-            return str(eval(safe_expr))
-        except:
-            return "計算格式錯誤。"
+            if not isinstance(expression, str) or not 0 < len(expression) <= 256:
+                raise ValueError("算式需為 1 至 256 個字元")
+            expression = expression.strip()
+            if not re.fullmatch(r"[0-9+\-*/(). \t]+", expression):
+                raise ValueError("只支援數字、小數、括號及四則運算")
+            nesting = 0
+            for char in expression:
+                nesting += (char == "(") - (char == ")")
+                if nesting > 16:
+                    raise ValueError("括號深度超過 16 層")
+            tree = ast.parse(expression, mode="eval")
+            if sum(1 for _ in ast.walk(tree)) > 64:
+                raise ValueError("算式過於複雜")
+            operations = {ast.Add: operator.add, ast.Sub: operator.sub,
+                          ast.Mult: operator.mul, ast.Div: operator.truediv}
+
+            def evaluate(node, depth=0):
+                if depth > 16:
+                    raise ValueError("運算深度超過 16 層")
+                if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+                    value = Decimal(ast.get_source_segment(expression, node))
+                elif isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+                    value = evaluate(node.operand, depth + 1)
+                    if isinstance(node.op, ast.USub):
+                        value = -value
+                elif isinstance(node, ast.BinOp) and type(node.op) in operations:
+                    value = operations[type(node.op)](
+                        evaluate(node.left, depth + 1), evaluate(node.right, depth + 1))
+                else:
+                    raise ValueError("不支援的運算")
+                if not value.is_finite() or abs(value) > Decimal("1e12"):
+                    raise ValueError("數值或中間結果超過 10^12")
+                return value
+
+            with localcontext() as context:
+                context.prec = 28
+                result = evaluate(tree.body)
+                return "0" if result == 0 else format(result.normalize(), "f")
+        except (ValueError, SyntaxError, DecimalException, OverflowError) as exc:
+            return f"計算錯誤：{exc}"
 
     def get_system_prompt(self):
         return """你是一個聰明的 ReAct Agent。你必須嚴格遵守以下輸出格式。

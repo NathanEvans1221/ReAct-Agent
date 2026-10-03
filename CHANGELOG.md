@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- 計算器以受限 AST 與 Decimal 取代 eval，拒絕變造輸入、非四則運算及超限算式。
 - 模擬搜尋改為明確查詢白名單，拒絕不相關及即時查詢；提示詞與示範任務明確標示資料限制。
 
 ### Tests

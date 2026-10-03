@@ -35,16 +35,17 @@ class MiniMaxReActAgent:
         }
 
     def tool_web_search(self, query: str) -> str:
-        """模擬網路搜尋工具（實務上可串接 SerpAPI）"""
+        """只提供明確列出的歷史示範資料，不進行網路搜尋。"""
         knowledge = {
-            "台灣總統": "2024年5月20日起，台灣總統為賴清德 (賴清德出生於1959年)。",
-            "賴清德年年齡": "賴清德出生日期為 1959 年 10 月 6 日。"
+            "2024年5月20日台灣總統是誰": "2024年5月20日就任的台灣總統為賴清德。",
+            "賴清德出生日期": "賴清德出生日期為1959年10月6日。",
+            "賴清德出生年份": "賴清德出生於1959年。"
         }
-        print(f"   🔎 [執行搜尋]: {query}")
-        # 簡單模擬匹配
-        if "總統" in query: return knowledge["台灣總統"]
-        if "1959" in query or "出生" in query: return knowledge["賴清德年年齡"]
-        return "搜尋不到具體結果，建議調整關鍵字。"
+        print(f"   🔎 [模擬搜尋，非即時資料]: {query}")
+        normalized = re.sub(r"\s+", "", query).rstrip("?？。")
+        if normalized in knowledge:
+            return f"[模擬資料，非即時搜尋] {knowledge[normalized]}"
+        return "[模擬搜尋] 沒有符合的示範資料；本工具無法查詢即時資訊，請勿推測答案。"
 
     def tool_calculator(self, expression: str) -> str:
         """安全執行數學計算"""
@@ -60,7 +61,7 @@ class MiniMaxReActAgent:
         return """你是一個聰明的 ReAct Agent。你必須嚴格遵守以下輸出格式。
 
 你可以使用的工具有：
-- web_search: 用於獲取最新時事或事實。
+- web_search: 模擬搜尋，僅支援「2024年5月20日台灣總統是誰」、「賴清德出生日期」、「賴清德出生年份」。不提供即時資訊，回答時必須標示依據模擬資料。
 - calculator: 用於精確的數學計算。
 
 輸出格式如下：
@@ -144,5 +145,5 @@ Final Answer: [最終總結答案]
 
 if __name__ == "__main__":
     agent = MiniMaxReActAgent()
-    query = "找出目前台灣總統是誰，並計算他在 2030 年時幾歲。"
+    query = "依據模擬資料，找出2024年5月20日就任的台灣總統，並計算他在2030年生日當天滿幾歲。"
     agent.run(query)

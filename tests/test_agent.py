@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 import httpx
-from openai import APIConnectionError
+from openai import APIConnectionError, OpenAI
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -32,6 +32,46 @@ def scripted_agent(*replies):
     agent.model = "offline-test"
     agent.tools = {"calculator": agent.tool_calculator, "web_search": agent.tool_web_search}
     return agent
+
+
+class RetryTests(unittest.TestCase):
+    def test_normal_tool_execution_does_not_sleep(self):
+        agent = scripted_agent("Thought: 計算\nAction: calculator\nAction Input: 1+2", "Final Answer: 3")
+        with patch("time.sleep") as sleep, contextlib.redirect_stdout(io.StringIO()):
+            result = agent.run("計算")
+        self.assertEqual(result.answer, "3")
+        sleep.assert_not_called()
+
+    def test_sdk_timeout_and_retry_policy_over_real_http_boundary(self):
+        for codes, expected_calls, expected_status in (([500, 200], 2, "success"),
+                                                      ([429, 429, 429], 3, "api_error"),
+                                                      ([401], 1, "api_error"),
+                                                      (["timeout"] * 3, 3, "api_error")):
+            with self.subTest(codes=codes):
+                requests = []
+                pending = iter(codes)
+                def handle(request):
+                    requests.append(request)
+                    code = next(pending)
+                    if code == "timeout":
+                        raise httpx.ReadTimeout("offline", request=request)
+                    if code != 200:
+                        return httpx.Response(code, json={"error": {"message": "offline", "type": "test_error"}})
+                    return httpx.Response(200, json={"id": "test", "object": "chat.completion", "created": 0,
+                        "model": "offline-test", "choices": [{"index": 0, "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "Final Answer: 成功"}}]})
+                with httpx.Client(transport=httpx.MockTransport(handle)) as http_client:
+                    def factory(**kwargs):
+                        return OpenAI(**kwargs, http_client=http_client)
+                    settings = {"MINIMAX_API_KEY": "offline", "MINIMAX_BASE_URL": "https://example.test/v1", "MINIMAX_MODEL": "offline-test"}
+                    with patch("main.load_settings", return_value=settings), patch("main.OpenAI", side_effect=factory), patch("time.sleep") as sleep, contextlib.redirect_stdout(io.StringIO()):
+                        agent = MiniMaxReActAgent()
+                        result = agent.run("測試")
+                    self.assertEqual(result.status, expected_status)
+                    self.assertEqual(len(requests), expected_calls)
+                    self.assertEqual(sleep.call_count, expected_calls - 1)
+                    for request in requests:
+                        self.assertLessEqual(request.extensions["timeout"]["read"], 30)
 
 
 class ConfigTests(unittest.TestCase):
@@ -61,7 +101,7 @@ class ConfigTests(unittest.TestCase):
 
 class RunTests(unittest.TestCase):
     def run_agent(self, agent, **kwargs):
-        with contextlib.redirect_stdout(io.StringIO()), patch("main.time.sleep"):
+        with contextlib.redirect_stdout(io.StringIO()):
             return agent.run("測試", **kwargs)
 
     def test_success_returns_answer_and_steps(self):

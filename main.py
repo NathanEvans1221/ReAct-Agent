@@ -3,7 +3,6 @@ import json
 import operator
 import os
 import re
-import time
 import traceback
 import uuid
 from dataclasses import dataclass
@@ -75,7 +74,9 @@ class MiniMaxReActAgent:
         # ═══════════════════════════════════════════
         self.client = OpenAI(
             api_key=settings["MINIMAX_API_KEY"],
-            base_url=settings["MINIMAX_BASE_URL"]
+            base_url=settings["MINIMAX_BASE_URL"],
+            timeout=30.0,
+            max_retries=2
         )
 
         self.model = settings["MINIMAX_MODEL"]
@@ -256,8 +257,6 @@ Final Answer: [最終總結答案]
             messages.append({"role": "assistant", "content": raw_content})
             messages.append({"role": "user", "content": f"Observation: {observation}"})
             
-            time.sleep(1) # 緩衝
-
         return RunResult("step_limit", max_steps, error="已達最大步數，尚未取得最終答案。")
 
 

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- 移除每輪固定等待，明確設定 SDK 30 秒逾時及最多兩次重試；以離線 HTTP 測試確認限流、伺服器錯誤、認證失敗及逾時行為。
 - 啟動前驗證金鑰、HTTPS 端點與模型；移除舊模型回退，統一官方模型拼字及 Python 版本說明。
 - 主循環回傳結構化結果及步數，區分 API／格式／回應錯誤與步數耗盡；CLI 失敗回傳非零退出碼，未預期錯誤保存去敏診斷報告。
 - 解析器驗證欄位順序、唯一性與非空值，保留多行內容；格式錯誤最多修正兩次且計入步數。

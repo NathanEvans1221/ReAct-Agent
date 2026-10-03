@@ -124,6 +124,8 @@ cp .env.example .env
 - `MINIMAX_MODEL`: `MiniMax-M2.5`（注意大小寫與小數點）。
 
 三個變數均為必填，程式不會回退到另一家供應商或舊模型；既有環境變數優先於 `.env`。
+正常步驟不固定等待。API 使用 SDK 的退避重試（最多重試 2 次，單輪最多 3 次 HTTP 嘗試），
+連線與讀取等各階段逾時設定為 30 秒；這不是整項任務的總時限。認證等不可重試錯誤會直接回報。
 端點必須為 HTTPS，且不得含帳密、查詢參數或片段。範例金鑰必須替換後才能執行。
 模型名稱及端點依據 [MiniMax 官方 OpenAI 相容介面文件](https://platform.minimax.io/docs/api-reference/text-openai-api)。
 

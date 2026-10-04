@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 加入搜尋、計算器、解析器、API 重試、MiniMax 回覆格式、CLI 與 Python 版本矩陣的離線回歸測試。
 
 ### Added
+- 新增 `scripts/verify.ps1`，提供與 Bash 驗證入口一致的 Windows PowerShell 離線檢查流程與安裝說明。
 - 加入 `--task`、`--max-steps`、`--help` CLI 參數、鎖定版依賴、Python 3.10–3.12 離線 CI，並更新與實際工具能力一致的 README。
 - 建立 `main.py`：實作串接 MiniMax 國際版 API 的 ReAct Agent 核心循環與 Regex 解析器。
 - 建立 `requirements.txt`：包含 `openai`, `python-dotenv` 等必要依賴。

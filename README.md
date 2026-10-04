@@ -21,10 +21,26 @@ VS Code 預覽 Mermaid 可安裝擴充套件 [Markdown Preview Mermaid Support](
 ## 環境需求
 
 - Python 3.10 以上；`.python-version` 指定開發版本 3.11.9。
-- Windows 使用者請在 WSL / Bash 執行以下步驟。
+- Windows 11 使用者可用 PowerShell 7 原生安裝與驗證；WSL 使用者可用 Bash 步驟。
 - MiniMax API 金鑰，以及帳戶可使用的模型。
 
-## 安裝
+## Windows PowerShell 安裝
+
+```powershell
+py -3.11 -m venv .venv-win
+.\.venv-win\Scripts\python.exe -m pip install -r requirements-dev.txt
+Copy-Item .env.example .env
+```
+
+編輯 `.env` 後，可用 `python main.py` 執行 Agent。離線驗證不會呼叫 MiniMax API，因此不需要設定有效 API 金鑰：
+
+```powershell
+.\scripts\verify.ps1
+```
+
+驗證腳本會優先使用 `.venv-win`，也可用 `-Python` 指定 Python 執行檔。
+
+## 安裝（WSL / Bash）
 
 ```bash
 python3 -m venv .venv

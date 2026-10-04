@@ -13,8 +13,15 @@ class CliTests(unittest.TestCase):
         agent.run.return_value = SimpleNamespace(status="success", answer="答案", error=None)
         with patch("main.MiniMaxReActAgent", return_value=agent), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(app.main(["--task", "自訂任務", "--max-steps", "7"]), 0)
-        agent.run.assert_called_once_with("自訂任務", max_steps=7)
+        agent.run.assert_called_once_with("自訂任務", max_steps=7, verbose=False)
         agent.close.assert_called_once()
+
+    def test_verbose_flag_enables_execution_details(self):
+        agent = Mock()
+        agent.run.return_value = SimpleNamespace(status="success", answer="答案", error=None)
+        with patch("main.MiniMaxReActAgent", return_value=agent), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(app.main(["--task", "任務", "--verbose"]), 0)
+        agent.run.assert_called_once_with("任務", max_steps=5, verbose=True)
 
     def test_invalid_step_limit_returns_usage_error_without_client(self):
         with patch("main.MiniMaxReActAgent") as constructor, contextlib.redirect_stderr(io.StringIO()):

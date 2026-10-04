@@ -112,6 +112,32 @@ class RunTests(unittest.TestCase):
         self.assertEqual((result.status, result.answer, result.steps), ("success", "5", 2))
         self.assertEqual(agent.calls[1][-1]["content"], "Observation: 5")
 
+    def test_default_output_hides_task_thought_and_tool_input(self):
+        agent = scripted_agent(
+            "Thought: 私有推理\nAction: calculator\nAction Input: 2+3",
+            "Final Answer: 結果")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = agent.run("敏感任務")
+        self.assertEqual(result.answer, "結果")
+        self.assertNotIn("敏感任務", output.getvalue())
+        self.assertNotIn("私有推理", output.getvalue())
+        self.assertNotIn("2+3", output.getvalue())
+        self.assertIn("Final Answer: 結果", output.getvalue())
+
+    def test_verbose_output_is_opt_in_and_strips_terminal_control_sequences(self):
+        agent = scripted_agent(
+            "Thought: 私有推理\nAction: calculator\nAction Input: 2+3",
+            "Final Answer: 完成\x1b[2J")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = agent.run("任務", verbose=True)
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.answer, "完成")
+        self.assertIn("任務", output.getvalue())
+        self.assertIn("私有推理", output.getvalue())
+        self.assertNotIn("\x1b", output.getvalue())
+
     def test_step_limit_has_explicit_result(self):
         agent = scripted_agent("Thought: 計算\nAction: calculator\nAction Input: 2+3")
         result = self.run_agent(agent, max_steps=1)

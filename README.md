@@ -48,10 +48,11 @@ MINIMAX_MODEL=MiniMax-M2.5
 ```bash
 python main.py
 python main.py --task "計算 2030 減 1959" --max-steps 3
+python main.py --task "計算 2030 減 1959" --verbose
 python main.py --help
 ```
 
-`--task` 預設執行程式內的歷史資料示範任務。`--max-steps` 接受 1 至 50，預設為 5。成功時 CLI 回傳 0；設定錯誤回傳 2；模型、工具或步數錯誤回傳非零狀態。
+`--task` 預設執行程式內的歷史資料示範任務。`--max-steps` 接受 1 至 50，預設為 5。預設不輸出任務全文、模型 Thought 或工具輸入；使用 `--verbose` 可顯示經終端控制字元清理的執行細節。成功時 CLI 回傳 0；設定錯誤回傳 2；模型、工具或步數錯誤回傳非零狀態。
 
 程式使用 OpenAI SDK 的 30 秒請求逾時與最多兩次重試；超過步數上限會回傳明確狀態。未預期的程式錯誤會在 `logs/crashes/` 產生去敏報告，避免保存金鑰、任務文字及 API 錯誤訊息。
 

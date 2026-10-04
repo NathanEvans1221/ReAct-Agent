@@ -17,6 +17,17 @@ from dotenv import load_dotenv
 
 CRASH_DIR = Path(__file__).resolve().parent / "logs" / "crashes"
 DEMO_QUERY = "依據模擬資料，找出2024年5月20日就任的台灣總統，並計算他在2030年生日當天滿幾歲。"
+ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-_])")
+
+
+def terminal_text(value: object) -> str:
+    """清除終端控制序列，並將其他控制字元替換為可見字元。"""
+    text = ANSI_ESCAPE.sub("", str(value))
+    return "".join(
+        char if char in "\n\t" or not (ord(char) < 32 or 0x7F <= ord(char) <= 0x9F)
+        else "�"
+        for char in text
+    )
 
 
 @dataclass(frozen=True)
@@ -107,7 +118,6 @@ class MiniMaxReActAgent:
             "賴清德出生日期": "賴清德出生日期為1959年10月6日。",
             "賴清德出生年份": "賴清德出生於1959年。"
         }
-        print(f"   🔎 [模擬搜尋，非即時資料]: {query}")
         normalized = re.sub(r"\s+", "", query).rstrip("?？。")
         if normalized in knowledge:
             return f"[模擬資料，非即時搜尋] {knowledge[normalized]}"
@@ -115,7 +125,6 @@ class MiniMaxReActAgent:
 
     def tool_calculator(self, expression: str) -> str:
         """以受限 AST 計算十進位四則運算，不執行任意 Python。"""
-        print(f"   🧮 [執行計算]: {expression}")
         try:
             if not isinstance(expression, str) or not 0 < len(expression) <= 256:
                 raise ValueError("算式需為 1 至 256 個字元")
@@ -203,12 +212,13 @@ Final Answer: [最終總結答案]
             return error
         return dict(zip(("thought", "action", "action_input"), values))
 
-    def run(self, user_query: str, max_steps: int = 5) -> RunResult:
+    def run(self, user_query: str, max_steps: int = 5, verbose: bool = False) -> RunResult:
         if not isinstance(user_query, str) or not user_query.strip():
             return RunResult("invalid_input", 0, error="任務不可為空。")
         if type(max_steps) is not int or not 1 <= max_steps <= 50:
             return RunResult("invalid_input", 0, error="最大步數需為 1 至 50 的整數。")
-        print(f"🚀 啟動任務: {user_query}\n")
+        if verbose:
+            print(f"🚀 啟動任務: {terminal_text(user_query)}\n")
         
         messages = [
             {"role": "system", "content": self.get_system_prompt()},
@@ -251,16 +261,18 @@ Final Answer: [最終總結答案]
                 continue
 
             if "final_answer" in parsed:
-                print(f"\n✅ 任務完成！\nFinal Answer: {parsed['final_answer']}")
-                return RunResult("success", step, answer=parsed["final_answer"])
+                answer = terminal_text(parsed["final_answer"])
+                print(f"\n✅ 任務完成！\nFinal Answer: {answer}")
+                return RunResult("success", step, answer=answer)
 
             # 解析成功，處理工具 call
             thought = parsed["thought"]
             action = parsed["action"]
             action_input = parsed["action_input"]
 
-            print(f"🤔 Thought: {thought}")
-            print(f"⚡ Action: {action}('{action_input}')")
+            if verbose:
+                print(f"🤔 Thought: {terminal_text(thought)}")
+                print(f"⚡ Action: {terminal_text(action)}('{terminal_text(action_input)}')")
 
             # 執行工具
             if action in self.tools:
@@ -271,7 +283,8 @@ Final Answer: [最終總結答案]
             else:
                 observation = f"錯誤：工具 {action} 不存在。"
             
-            print(f"👁️ Observation: {observation}\n")
+            if verbose:
+                print(f"👁️ Observation: {terminal_text(observation)}\n")
 
             # 將 Observation 加回對話紀錄，進行下一輪思考
             messages.append(self._assistant_message(response_message, raw_content))
@@ -294,6 +307,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="MiniMax ReAct Agent 教學範例")
     parser.add_argument("--task", default=DEMO_QUERY, help="要交給 Agent 的任務")
     parser.add_argument("--max-steps", type=int, default=5, help="模型步數上限（1 至 50，預設 5）")
+    parser.add_argument("--verbose", action="store_true", help="顯示任務與模型執行細節")
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
@@ -312,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"❌ 設定錯誤：{exc}")
         return 2
     try:
-        result = agent.run(args.task, max_steps=args.max_steps)
+        result = agent.run(args.task, max_steps=args.max_steps, verbose=args.verbose)
         if result.status != "success":
             print(f"❌ {result.status}: {result.error}")
             return 1

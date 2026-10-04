@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- 預設隱藏任務、模型 Thought 與工具輸入；新增 `--verbose` 選項，所有動態終端文字先清理控制序列。
 - Agent 支援注入模型客戶端、明確管理客戶端生命週期，並保留 MiniMax 推理欄位及過濾 `<think>` 標籤後解析。
 - 移除每輪固定等待，明確設定 SDK 30 秒逾時及最多兩次重試；以離線 HTTP 測試確認限流、伺服器錯誤、認證失敗及逾時行為。
 - 啟動前驗證金鑰、HTTPS 端點與模型；移除舊模型回退，統一官方模型拼字及 Python 版本說明。

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- 驗證模型候選訊息與文字欄位；拒答、輸出長度截斷、內容篩選及不支援的結束狀態回傳明確結果。
 - 為每次 Agent 執行加入可調整的累計輸入字元預算；限制工具 Observation 為 4,000 字元並明確提示截斷。
 - 預設隱藏任務、模型 Thought 與工具輸入；新增 `--verbose` 選項，所有動態終端文字先清理控制序列。
 - Agent 支援注入模型客戶端、明確管理客戶端生命週期，並保留 MiniMax 推理欄位及過濾 `<think>` 標籤後解析。

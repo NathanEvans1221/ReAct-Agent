@@ -270,11 +270,29 @@ Final Answer: [最終總結答案]
                 return RunResult("api_error", step, error=f"模型 API 請求失敗（{type(exc).__name__}）。請檢查連線、設定及額度。")
             except Exception as exc:
                 return unexpected_error(exc, step)
-            if not getattr(response, "choices", None):
+            choices = getattr(response, "choices", None)
+            if not isinstance(choices, (list, tuple)) or not choices:
                 return RunResult("response_error", step, error="模型未回傳任何候選回覆。")
 
-            response_message = response.choices[0].message
+            choice = choices[0]
+            response_message = getattr(choice, "message", None)
+            if response_message is None:
+                return RunResult("response_error", step, error="模型回覆缺少訊息內容。")
+            refusal = getattr(response_message, "refusal", None)
+            if isinstance(refusal, str) and refusal.strip():
+                return RunResult("refusal", step, error="模型拒絕回覆此任務。")
+
+            finish_reason = getattr(choice, "finish_reason", None)
+            if finish_reason == "length":
+                return RunResult("incomplete_response", step, error="模型輸出達長度上限，答案可能不完整。")
+            if finish_reason == "content_filter":
+                return RunResult("content_filtered", step, error="模型回覆遭內容篩選，未採用該內容。")
+            if finish_reason not in (None, "stop"):
+                return RunResult("response_error", step, error="模型回覆包含不支援的結束狀態。")
+
             raw_content = getattr(response_message, "content", None)
+            if not isinstance(raw_content, str) or not raw_content.strip():
+                return RunResult("response_error", step, error="模型回覆缺少文字內容。")
             parsed = self.parse_output(raw_content)
 
             if "error" in parsed:

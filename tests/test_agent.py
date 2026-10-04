@@ -14,8 +14,9 @@ from main import MiniMaxReActAgent
 import main as app
 
 
-def response(content):
-    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+def response(content, finish_reason="stop", refusal=None):
+    return SimpleNamespace(choices=[SimpleNamespace(
+        message=SimpleNamespace(content=content, refusal=refusal), finish_reason=finish_reason)])
 
 
 def scripted_agent(*replies):
@@ -188,6 +189,44 @@ class RunTests(unittest.TestCase):
         agent = scripted_agent()
         agent.client.chat.completions.create = lambda **kwargs: SimpleNamespace(choices=[])
         self.assertEqual(self.run_agent(agent).status, "response_error")
+
+    def test_malformed_choice_message_and_content_return_response_error(self):
+        malformed_responses = (
+            SimpleNamespace(choices=[None]),
+            SimpleNamespace(choices=[SimpleNamespace(message=None, finish_reason="stop")]),
+            response(None),
+            response(["not", "text"]),
+            SimpleNamespace(choices="invalid"),
+        )
+        for malformed in malformed_responses:
+            with self.subTest(malformed=malformed):
+                agent = scripted_agent()
+                agent.client.chat.completions.create = lambda **kwargs: malformed
+                try:
+                    result = self.run_agent(agent)
+                except Exception:
+                    result = SimpleNamespace(status="uncaught_exception")
+                self.assertEqual(result.status, "response_error")
+
+    def test_model_refusal_returns_status_without_exposing_refusal_text(self):
+        agent = scripted_agent()
+        agent.client.chat.completions.create = lambda **kwargs: response(
+            None, refusal="private refusal details")
+        result = self.run_agent(agent)
+        self.assertEqual(result.status, "refusal")
+        self.assertNotIn("private refusal details", result.error)
+
+    def test_truncated_and_filtered_model_responses_are_not_successes(self):
+        for finish_reason, expected in (("length", "incomplete_response"),
+                                        ("content_filter", "content_filtered"),
+                                        ("tool_calls", "response_error")):
+            with self.subTest(finish_reason=finish_reason):
+                agent = scripted_agent()
+                agent.client.chat.completions.create = lambda **kwargs: response(
+                    "Final Answer: 不得視為成功", finish_reason=finish_reason)
+                result = self.run_agent(agent)
+                self.assertEqual(result.status, expected)
+                self.assertIsNone(result.answer)
 
     def test_unexpected_tool_failure_writes_sanitized_crash(self):
         agent = scripted_agent("Thought: 測試\nAction: broken\nAction Input: secret-input")

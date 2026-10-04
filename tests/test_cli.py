@@ -13,7 +13,7 @@ class CliTests(unittest.TestCase):
         agent.run.return_value = SimpleNamespace(status="success", answer="答案", error=None)
         with patch("main.MiniMaxReActAgent", return_value=agent), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(app.main(["--task", "自訂任務", "--max-steps", "7"]), 0)
-        agent.run.assert_called_once_with("自訂任務", max_steps=7, verbose=False)
+        agent.run.assert_called_once_with("自訂任務", max_steps=7, verbose=False, max_input_chars=60000)
         agent.close.assert_called_once()
 
     def test_verbose_flag_enables_execution_details(self):
@@ -21,7 +21,20 @@ class CliTests(unittest.TestCase):
         agent.run.return_value = SimpleNamespace(status="success", answer="答案", error=None)
         with patch("main.MiniMaxReActAgent", return_value=agent), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(app.main(["--task", "任務", "--verbose"]), 0)
-        agent.run.assert_called_once_with("任務", max_steps=5, verbose=True)
+        agent.run.assert_called_once_with("任務", max_steps=5, verbose=True, max_input_chars=60000)
+
+    def test_input_budget_is_forwarded_to_agent(self):
+        agent = Mock()
+        agent.run.return_value = SimpleNamespace(status="success", answer="答案", error=None)
+        with patch("main.MiniMaxReActAgent", return_value=agent), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(app.main(["--task", "任務", "--max-input-chars", "9000"]), 0)
+        agent.run.assert_called_once_with("任務", max_steps=5, verbose=False, max_input_chars=9000)
+
+    def test_nonpositive_input_budget_is_rejected_before_client_creation(self):
+        with patch("main.MiniMaxReActAgent") as constructor, contextlib.redirect_stderr(io.StringIO()) as error:
+            self.assertEqual(app.main(["--max-input-chars", "0"]), 2)
+        constructor.assert_not_called()
+        self.assertIn("--max-input-chars 必須為正整數", error.getvalue())
 
     def test_invalid_step_limit_returns_usage_error_without_client(self):
         with patch("main.MiniMaxReActAgent") as constructor, contextlib.redirect_stderr(io.StringIO()):

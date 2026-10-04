@@ -102,9 +102,9 @@ class ConfigTests(unittest.TestCase):
 
 
 class RunTests(unittest.TestCase):
-    def run_agent(self, agent, **kwargs):
+    def run_agent(self, agent, user_query="測試", **kwargs):
         with contextlib.redirect_stdout(io.StringIO()):
-            return agent.run("測試", **kwargs)
+            return agent.run(user_query, **kwargs)
 
     def test_success_returns_answer_and_steps(self):
         agent = scripted_agent("Thought: 計算\nAction: calculator\nAction Input: 2+3", "Final Answer: 5")
@@ -137,6 +137,34 @@ class RunTests(unittest.TestCase):
         self.assertIn("任務", output.getvalue())
         self.assertIn("私有推理", output.getvalue())
         self.assertNotIn("\x1b", output.getvalue())
+
+    def test_input_budget_exhaustion_stops_before_model_request(self):
+        agent = scripted_agent("Final Answer: 不應呼叫")
+        result = self.run_agent(agent, user_query="x" * 100000)
+        self.assertEqual(result.status, "budget_exhausted")
+        self.assertEqual((result.steps, agent.calls), (0, []))
+
+    def test_total_input_budget_stops_before_next_model_request(self):
+        agent = scripted_agent(
+            "Thought: 計算\nAction: calculator\nAction Input: 2+3",
+            "Final Answer: 不應呼叫")
+        result = self.run_agent(agent, user_query="x" * 40000)
+        self.assertEqual(result.status, "budget_exhausted")
+        self.assertEqual((result.steps, len(agent.calls)), (1, 1))
+
+    def test_long_tool_observation_is_truncated_and_reported(self):
+        agent = scripted_agent(
+            "Thought: 讀取\nAction: oversized\nAction Input: x",
+            "Final Answer: 已處理")
+        agent.tools["oversized"] = lambda _: "x" * 6000
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = agent.run("測試")
+        observation = agent.calls[1][-1]["content"]
+        self.assertEqual(result.status, "success")
+        self.assertIn("工具輸出已截斷", observation)
+        self.assertLessEqual(len(observation) - len("Observation: "), 4000)
+        self.assertIn("工具輸出已截斷", output.getvalue())
 
     def test_step_limit_has_explicit_result(self):
         agent = scripted_agent("Thought: 計算\nAction: calculator\nAction Input: 2+3")

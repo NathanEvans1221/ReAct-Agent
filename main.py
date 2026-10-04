@@ -17,6 +17,8 @@ from dotenv import load_dotenv
 
 CRASH_DIR = Path(__file__).resolve().parent / "logs" / "crashes"
 DEMO_QUERY = "依據模擬資料，找出2024年5月20日就任的台灣總統，並計算他在2030年生日當天滿幾歲。"
+DEFAULT_MAX_INPUT_CHARS = 60000
+MAX_OBSERVATION_CHARS = 4000
 ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-_])")
 
 
@@ -28,6 +30,15 @@ def terminal_text(value: object) -> str:
         else "�"
         for char in text
     )
+
+
+def limit_observation(value: object) -> tuple[str, bool, int]:
+    """限制工具結果長度並標示截斷。"""
+    text = str(value)
+    if len(text) <= MAX_OBSERVATION_CHARS:
+        return text, False, len(text)
+    marker = f"\n…[工具輸出已截斷；原始長度 {len(text)} 字元]"
+    return text[:MAX_OBSERVATION_CHARS - len(marker)] + marker, True, len(text)
 
 
 @dataclass(frozen=True)
@@ -212,11 +223,19 @@ Final Answer: [最終總結答案]
             return error
         return dict(zip(("thought", "action", "action_input"), values))
 
-    def run(self, user_query: str, max_steps: int = 5, verbose: bool = False) -> RunResult:
+    def run(
+        self,
+        user_query: str,
+        max_steps: int = 5,
+        verbose: bool = False,
+        max_input_chars: int = DEFAULT_MAX_INPUT_CHARS,
+    ) -> RunResult:
         if not isinstance(user_query, str) or not user_query.strip():
             return RunResult("invalid_input", 0, error="任務不可為空。")
         if type(max_steps) is not int or not 1 <= max_steps <= 50:
             return RunResult("invalid_input", 0, error="最大步數需為 1 至 50 的整數。")
+        if type(max_input_chars) is not int or max_input_chars < 1:
+            return RunResult("invalid_input", 0, error="總輸入字元預算需為正整數。")
         if verbose:
             print(f"🚀 啟動任務: {terminal_text(user_query)}\n")
         
@@ -226,8 +245,18 @@ Final Answer: [最終總結答案]
         ]
 
         format_errors = 0
+        total_input_chars = 0
         # 格式修正也計入最大步數，避免無限重試。
         for step in range(1, max_steps + 1):
+            request_chars = len(json.dumps(messages, ensure_ascii=False, separators=(",", ":")))
+            if total_input_chars + request_chars > max_input_chars:
+                return RunResult(
+                    "budget_exhausted",
+                    step - 1,
+                    error=(f"總輸入字元預算已耗盡（已用 {total_input_chars}/{max_input_chars} 字元；"
+                           f"下一次請求需要 {request_chars} 字元）。"),
+                )
+            total_input_chars += request_chars
             print(f"--- 步驟 {step} ---")
             
             # 向 MiniMax API 發送請求
@@ -282,6 +311,10 @@ Final Answer: [最終總結答案]
                     return unexpected_error(exc, step)
             else:
                 observation = f"錯誤：工具 {action} 不存在。"
+
+            observation, was_truncated, original_observation_chars = limit_observation(observation)
+            if was_truncated:
+                print(f"⚠️ 工具輸出已截斷（原始 {original_observation_chars} 字元，上限 {MAX_OBSERVATION_CHARS} 字元）。")
             
             if verbose:
                 print(f"👁️ Observation: {terminal_text(observation)}\n")
@@ -307,6 +340,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="MiniMax ReAct Agent 教學範例")
     parser.add_argument("--task", default=DEMO_QUERY, help="要交給 Agent 的任務")
     parser.add_argument("--max-steps", type=int, default=5, help="模型步數上限（1 至 50，預設 5）")
+    parser.add_argument("--max-input-chars", type=int, default=DEFAULT_MAX_INPUT_CHARS,
+                        help=f"整次任務的模型輸入字元預算（預設 {DEFAULT_MAX_INPUT_CHARS}）")
     parser.add_argument("--verbose", action="store_true", help="顯示任務與模型執行細節")
     try:
         args = parser.parse_args(argv)
@@ -315,6 +350,10 @@ def main(argv: list[str] | None = None) -> int:
     if not 1 <= args.max_steps <= 50:
         parser.print_usage(sys.stderr)
         print("main.py: error: --max-steps 必須介於 1 至 50", file=sys.stderr)
+        return 2
+    if args.max_input_chars < 1:
+        parser.print_usage(sys.stderr)
+        print("main.py: error: --max-input-chars 必須為正整數", file=sys.stderr)
         return 2
     if not args.task.strip():
         parser.print_usage(sys.stderr)
@@ -326,7 +365,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"❌ 設定錯誤：{exc}")
         return 2
     try:
-        result = agent.run(args.task, max_steps=args.max_steps, verbose=args.verbose)
+        result = agent.run(args.task, max_steps=args.max_steps, verbose=args.verbose,
+                           max_input_chars=args.max_input_chars)
         if result.status != "success":
             print(f"❌ {result.status}: {result.error}")
             return 1

@@ -97,7 +97,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_cli_configuration_failure_is_readable(self):
         with patch.dict(os.environ, {}, clear=True), patch("main.load_dotenv"), contextlib.redirect_stdout(io.StringIO()) as output:
-            self.assertEqual(app.main(), 2)
+            self.assertEqual(app.main([]), 2)
         self.assertIn("MINIMAX_API_KEY", output.getvalue())
 
 
@@ -155,7 +155,7 @@ class RunTests(unittest.TestCase):
         self.assertIsNotNone(entry, "需要可回傳退出碼的 CLI 入口")
         agent = scripted_agent("bad", "bad", "bad")
         with patch("main.MiniMaxReActAgent", return_value=agent), contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(entry(), 1)
+            self.assertEqual(entry([]), 1)
 
     def test_unknown_tool_feedback_allows_recovery(self):
         agent = scripted_agent("Thought: 嘗試\nAction: unknown\nAction Input: x", "Final Answer: 無此工具")

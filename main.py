@@ -1,8 +1,10 @@
 import ast
+import argparse
 import json
 import operator
 import os
 import re
+import sys
 import traceback
 import uuid
 from dataclasses import dataclass
@@ -288,14 +290,29 @@ Final Answer: [最終總結答案]
         return result
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="MiniMax ReAct Agent 教學範例")
+    parser.add_argument("--task", default=DEMO_QUERY, help="要交給 Agent 的任務")
+    parser.add_argument("--max-steps", type=int, default=5, help="模型步數上限（1 至 50，預設 5）")
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        return int(exc.code)
+    if not 1 <= args.max_steps <= 50:
+        parser.print_usage(sys.stderr)
+        print("main.py: error: --max-steps 必須介於 1 至 50", file=sys.stderr)
+        return 2
+    if not args.task.strip():
+        parser.print_usage(sys.stderr)
+        print("main.py: error: --task 不可為空", file=sys.stderr)
+        return 2
     try:
         agent = MiniMaxReActAgent()
     except ValueError as exc:
         print(f"❌ 設定錯誤：{exc}")
         return 2
     try:
-        result = agent.run(DEMO_QUERY)
+        result = agent.run(args.task, max_steps=args.max_steps)
         if result.status != "success":
             print(f"❌ {result.status}: {result.error}")
             return 1

@@ -7,4 +7,6 @@ if [[ "${1:-}" == "--core" ]]; then
 else
   "$python" -m unittest discover -s tests -v
 fi
+"$python" -m pip check
+"$python" -m compileall -q main.py tests
 git -c core.autocrlf=true diff --check

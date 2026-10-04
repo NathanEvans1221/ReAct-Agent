@@ -20,6 +20,7 @@ def response(content):
 
 def scripted_agent(*replies):
     agent = MiniMaxReActAgent.__new__(MiniMaxReActAgent)
+    agent._owns_client = False
     pending = iter(replies)
     agent.calls = []
     def create(**kwargs):
@@ -31,6 +32,7 @@ def scripted_agent(*replies):
     agent.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
     agent.model = "offline-test"
     agent.tools = {"calculator": agent.tool_calculator, "web_search": agent.tool_web_search}
+    agent.close = lambda: None
     return agent
 
 
@@ -154,6 +156,26 @@ class RunTests(unittest.TestCase):
         agent = scripted_agent("bad", "bad", "bad")
         with patch("main.MiniMaxReActAgent", return_value=agent), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(entry(), 1)
+
+    def test_unknown_tool_feedback_allows_recovery(self):
+        agent = scripted_agent("Thought: 嘗試\nAction: unknown\nAction Input: x", "Final Answer: 無此工具")
+        result = self.run_agent(agent)
+        self.assertEqual(result.status, "success")
+        self.assertIn("不存在", agent.calls[1][-1]["content"])
+
+    def test_repeated_runs_do_not_share_conversation(self):
+        agent = scripted_agent("Final Answer: 第一個", "Final Answer: 第二個")
+        self.run_agent(agent)
+        self.run_agent(agent)
+        self.assertEqual(len(agent.calls[1]), 2)
+
+    def test_invalid_run_inputs_do_not_call_model(self):
+        agent = scripted_agent()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(agent.run(" ").status, "invalid_input")
+            for limit in (0, -1, 51, True, 1.5):
+                self.assertEqual(agent.run("test", max_steps=limit).status, "invalid_input")
+        self.assertEqual(agent.calls, [])
 
 
 class SearchTests(unittest.TestCase):

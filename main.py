@@ -65,27 +65,38 @@ def load_settings() -> dict[str, str]:
 # ═══════════════════════════════════════════
 
 class MiniMaxReActAgent:
-    def __init__(self):
-        settings = load_settings()
+    def __init__(self, client=None, model: str | None = None):
+        self._owns_client = client is None
+        if client is None:
+            settings = load_settings()
         # ═══════════════════════════════════════════
         # 💡 標準用法說明：OpenAI SDK v1.x +
         # 這裡採用了現代化的 Client 實例化方式，相對於舊版的全局設定更具隔離性。
         # 由於 MiniMax 支援 OpenAI 兼容協議，我們只需替換 base_url 即可。
         # ═══════════════════════════════════════════
-        self.client = OpenAI(
-            api_key=settings["MINIMAX_API_KEY"],
-            base_url=settings["MINIMAX_BASE_URL"],
-            timeout=30.0,
-            max_retries=2
-        )
+            self.client = OpenAI(
+                api_key=settings["MINIMAX_API_KEY"],
+                base_url=settings["MINIMAX_BASE_URL"],
+                timeout=30.0,
+                max_retries=2
+            )
+            self.model = settings["MINIMAX_MODEL"]
+        else:
+            if not isinstance(model, str) or not model.strip():
+                raise ValueError("注入客戶端時必須提供非空模型名稱。")
+            self.client = client
+            self.model = model.strip()
 
-        self.model = settings["MINIMAX_MODEL"]
-        
         # 定義可用工具
         self.tools = {
             "web_search": self.tool_web_search,
             "calculator": self.tool_calculator
         }
+
+    def close(self) -> None:
+        """釋放 Agent 建立的客戶端；注入的客戶端由建立者管理。"""
+        if self._owns_client:
+            self.client.close()
 
     def tool_web_search(self, query: str) -> str:
         """只提供明確列出的歷史示範資料，不進行網路搜尋。"""
@@ -168,6 +179,12 @@ Final Answer: [最終總結答案]
         if not isinstance(text, str) or not text.strip():
             return error
         text = text.strip()
+        if "<think>" in text:
+            if not re.match(r"\A<think>.*?</think>\s*", text, re.S):
+                return error
+            text = re.sub(r"\A<think>.*?</think>\s*", "", text, count=1, flags=re.S)
+        if "</think>" in text:
+            return error
         fields = list(re.finditer(r"^(Thought|Action|Action Input|Final Answer):[ \t]*", text, re.M))
         names = [field.group(1) for field in fields]
         if not fields or fields[0].start() != 0:
@@ -212,10 +229,11 @@ Final Answer: [最終總結答案]
                 return RunResult("api_error", step, error=f"模型 API 請求失敗（{type(exc).__name__}）。請檢查連線、設定及額度。")
             except Exception as exc:
                 return unexpected_error(exc, step)
-            if not response.choices:
+            if not getattr(response, "choices", None):
                 return RunResult("response_error", step, error="模型未回傳任何候選回覆。")
-            
-            raw_content = response.choices[0].message.content
+
+            response_message = response.choices[0].message
+            raw_content = getattr(response_message, "content", None)
             parsed = self.parse_output(raw_content)
 
             if "error" in parsed:
@@ -224,7 +242,7 @@ Final Answer: [最終總結答案]
                 if format_errors > 2:
                     return RunResult("format_error", step, error="模型連續或累計三次輸出無效格式。")
                 if isinstance(raw_content, str) and raw_content.strip():
-                    messages.append({"role": "assistant", "content": raw_content})
+                    messages.append(self._assistant_message(response_message, raw_content))
                 messages.append({"role": "user", "content":
                                  "輸出格式錯誤。請僅輸出 Thought、Action、Action Input 三個非空欄位，"
                                  "或單獨輸出非空的 Final Answer；每個欄位名稱必須獨占行首且不可重複。"})
@@ -254,10 +272,20 @@ Final Answer: [最終總結答案]
             print(f"👁️ Observation: {observation}\n")
 
             # 將 Observation 加回對話紀錄，進行下一輪思考
-            messages.append({"role": "assistant", "content": raw_content})
+            messages.append(self._assistant_message(response_message, raw_content))
             messages.append({"role": "user", "content": f"Observation: {observation}"})
             
         return RunResult("step_limit", max_steps, error="已達最大步數，尚未取得最終答案。")
+
+    @staticmethod
+    def _assistant_message(response_message, content: str) -> dict[str, Any]:
+        if hasattr(response_message, "model_dump"):
+            return response_message.model_dump(exclude_none=True)
+        result = {"role": "assistant", "content": content}
+        reasoning = getattr(response_message, "reasoning_content", None)
+        if reasoning is not None:
+            result["reasoning_content"] = reasoning
+        return result
 
 
 def main() -> int:
@@ -266,11 +294,14 @@ def main() -> int:
     except ValueError as exc:
         print(f"❌ 設定錯誤：{exc}")
         return 2
-    result = agent.run(DEMO_QUERY)
-    if result.status != "success":
-        print(f"❌ {result.status}: {result.error}")
-        return 1
-    return 0
+    try:
+        result = agent.run(DEMO_QUERY)
+        if result.status != "success":
+            print(f"❌ {result.status}: {result.error}")
+            return 1
+        return 0
+    finally:
+        agent.close()
 
 
 if __name__ == "__main__":

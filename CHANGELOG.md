@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- 移除 GitHub Actions 離線測試 CI 設定（`.github/workflows/tests.yml`）及 README 相關說明。
+
 ### Fixed
 - 驗證模型候選訊息與文字欄位；拒答、輸出長度截斷、內容篩選及不支援的結束狀態回傳明確結果。
 - 為每次 Agent 執行加入可調整的累計輸入字元預算；限制工具 Observation 為 4,000 字元並明確提示截斷。

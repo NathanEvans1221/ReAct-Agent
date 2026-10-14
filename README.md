@@ -90,7 +90,7 @@ python -m pip install -r requirements-dev.txt
 bash scripts/verify.sh
 ```
 
-測試使用假的模型回覆與 HTTP transport，不會呼叫 MiniMax 或其他外部服務。GitHub Actions 會在 Python 3.10、3.11、3.12 執行同一套離線檢查。
+測試使用假的模型回覆與 HTTP transport，不會呼叫 MiniMax 或其他外部服務。
 
 <!-- [😸WSL] -->
 <!-- [😸SAM] -->
